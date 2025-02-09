@@ -483,7 +483,8 @@ namespace Emby.Server.Implementations.Plugins
                 Version = versionInfo.Version,
                 Status = status == PluginStatus.Disabled ? PluginStatus.Disabled : PluginStatus.Active, // Keep disabled state.
                 AutoUpdate = true,
-                ImagePath = imagePath
+                ImagePath = imagePath,
+                Dependencies = versionInfo.Dependencies
             };
 
             if (!await ReconcileManifest(manifest, path).ConfigureAwait(false))

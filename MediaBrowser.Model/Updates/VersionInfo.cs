@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using SysVersion = System.Version;
 
@@ -73,5 +75,11 @@ namespace MediaBrowser.Model.Updates
         /// </summary>
         [JsonPropertyName("repositoryUrl")]
         public string RepositoryUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the dependencies for this plugin.
+        /// </summary>
+        [JsonPropertyName("dependencies")]
+        public IReadOnlyList<Guid> Dependencies { get; set; } = Array.Empty<Guid>();
     }
 }
