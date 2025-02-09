@@ -152,7 +152,10 @@ namespace Emby.Server.Implementations.Plugins
 
                 if (group != null)
                 {
-                    group.Add(pluginDependencies.Key);
+                    if (!group.Contains(pluginDependencies.Key))
+                    {
+                        group.Add(pluginDependencies.Key);
+                    }
 
                     foreach (var dependency in pluginDependencies.Value)
                     {
