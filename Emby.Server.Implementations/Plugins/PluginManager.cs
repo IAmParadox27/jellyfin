@@ -116,76 +116,132 @@ namespace Emby.Server.Implementations.Plugins
                 }
             }
 
-            // Now load the assemblies..
+            // Group the assemblies into groups based on their dependencies
+            var dependentPlugins = new Dictionary<Guid, List<Guid>>();
             foreach (var plugin in _plugins)
             {
-                UpdatePluginSupersededStatus(plugin);
-
-                if (plugin.IsEnabledAndSupported == false)
+                foreach (var dependency in plugin.PluginDependencies ?? Enumerable.Empty<Guid>())
                 {
-                    _logger.LogInformation("Skipping disabled plugin {Version} of {Name} ", plugin.Version, plugin.Name);
-                    continue;
+                    if (!dependentPlugins.TryGetValue(dependency, out var value))
+                    {
+                        value = new List<Guid>();
+                        dependentPlugins.Add(dependency, value);
+                    }
+
+                    value.Add(plugin.Id);
+                }
+            }
+
+            var pluginGroups = new List<List<Guid>>();
+            foreach (var pluginDependencies in dependentPlugins)
+            {
+                List<Guid>? group = null;
+                if (pluginGroups.Any(x => x.Any(y => y.Equals(pluginDependencies.Key))))
+                {
+                    group = pluginGroups.First(x => x.Any(y => y.Equals(pluginDependencies.Key)));
+                }
+                else if (pluginGroups.Any(x => x.Any(y => pluginDependencies.Value.Contains(y))))
+                {
+                    group = pluginGroups.First(x => x.Any(y => pluginDependencies.Value.Contains(y)));
+                }
+                else
+                {
+                    group = new List<Guid>();
+                    pluginGroups.Add(group);
                 }
 
-                var assemblyLoadContext = new PluginLoadContext(plugin.Path);
+                if (group != null)
+                {
+                    group.Add(pluginDependencies.Key);
+
+                    foreach (var dependency in pluginDependencies.Value)
+                    {
+                        if (!group.Contains(dependency))
+                        {
+                            group.Add(dependency);
+                        }
+                    }
+                }
+            }
+
+            pluginGroups.AddRange(_plugins.Where(x => !pluginGroups.SelectMany(x => x).Contains(x.Id)).Select(x => new List<Guid> { x.Id }));
+
+            // Now load the assemblies..
+            foreach (var pluginGroup in pluginGroups)
+            {
+                var assemblyLoadContext = new PluginGroupLoadContext();
                 _assemblyLoadContexts.Add(assemblyLoadContext);
 
-                var assemblies = new List<Assembly>(plugin.DllFiles.Count);
-                var loadedAll = true;
-
-                foreach (var file in plugin.DllFiles)
+                foreach (var pluginId in pluginGroup)
                 {
-                    try
-                    {
-                        assemblies.Add(assemblyLoadContext.LoadFromAssemblyPath(file));
-                    }
-                    catch (FileLoadException ex)
-                    {
-                        _logger.LogError(ex, "Failed to load assembly {Path}. Disabling plugin", file);
-                        ChangePluginState(plugin, PluginStatus.Malfunctioned);
-                        loadedAll = false;
-                        break;
-                    }
-#pragma warning disable CA1031 // Do not catch general exception types
-                    catch (Exception ex)
-#pragma warning restore CA1031 // Do not catch general exception types
-                    {
-                        _logger.LogError(ex, "Failed to load assembly {Path}. Unknown exception was thrown. Disabling plugin", file);
-                        ChangePluginState(plugin, PluginStatus.Malfunctioned);
-                        loadedAll = false;
-                        break;
-                    }
-                }
+                    var plugin = _plugins.First(x => x.Id.Equals(pluginId));
+                    UpdatePluginSupersededStatus(plugin);
 
-                if (!loadedAll)
-                {
-                    continue;
-                }
-
-                foreach (var assembly in assemblies)
-                {
-                    try
+                    if (plugin.IsEnabledAndSupported == false)
                     {
-                        // Load all required types to verify that the plugin will load
-                        assembly.GetTypes();
-                    }
-                    catch (SystemException ex) when (ex is TypeLoadException or ReflectionTypeLoadException) // Undocumented exception
-                    {
-                        _logger.LogError(ex, "Failed to load assembly {Path}. This error occurs when a plugin references an incompatible version of one of the shared libraries. Disabling plugin", assembly.Location);
-                        ChangePluginState(plugin, PluginStatus.NotSupported);
-                        break;
-                    }
-#pragma warning disable CA1031 // Do not catch general exception types
-                    catch (Exception ex)
-#pragma warning restore CA1031 // Do not catch general exception types
-                    {
-                        _logger.LogError(ex, "Failed to load assembly {Path}. Unknown exception was thrown. Disabling plugin", assembly.Location);
-                        ChangePluginState(plugin, PluginStatus.Malfunctioned);
-                        break;
+                        _logger.LogInformation("Skipping disabled plugin {Version} of {Name} ", plugin.Version, plugin.Name);
+                        continue;
                     }
 
-                    _logger.LogInformation("Loaded assembly {Assembly} from {Path}", assembly.FullName, assembly.Location);
-                    yield return assembly;
+                    assemblyLoadContext.RegisterResolverForPath(plugin.Path);
+
+                    var assemblies = new List<Assembly>(plugin.DllFiles.Count);
+                    var loadedAll = true;
+
+                    foreach (var file in plugin.DllFiles)
+                    {
+                        try
+                        {
+                            assemblies.Add(assemblyLoadContext.LoadFromAssemblyPath(file));
+                        }
+                        catch (FileLoadException ex)
+                        {
+                            _logger.LogError(ex, "Failed to load assembly {Path}. Disabling plugin", file);
+                            ChangePluginState(plugin, PluginStatus.Malfunctioned);
+                            loadedAll = false;
+                            break;
+                        }
+    #pragma warning disable CA1031 // Do not catch general exception types
+                        catch (Exception ex)
+    #pragma warning restore CA1031 // Do not catch general exception types
+                        {
+                            _logger.LogError(ex, "Failed to load assembly {Path}. Unknown exception was thrown. Disabling plugin", file);
+                            ChangePluginState(plugin, PluginStatus.Malfunctioned);
+                            loadedAll = false;
+                            break;
+                        }
+                    }
+
+                    if (!loadedAll)
+                    {
+                        continue;
+                    }
+
+                    foreach (var assembly in assemblies)
+                    {
+                        try
+                        {
+                            // Load all required types to verify that the plugin will load
+                            assembly.GetTypes();
+                        }
+                        catch (SystemException ex) when (ex is TypeLoadException or ReflectionTypeLoadException) // Undocumented exception
+                        {
+                            _logger.LogError(ex, "Failed to load assembly {Path}. This error occurs when a plugin references an incompatible version of one of the shared libraries. Disabling plugin", assembly.Location);
+                            ChangePluginState(plugin, PluginStatus.NotSupported);
+                            break;
+                        }
+    #pragma warning disable CA1031 // Do not catch general exception types
+                        catch (Exception ex)
+    #pragma warning restore CA1031 // Do not catch general exception types
+                        {
+                            _logger.LogError(ex, "Failed to load assembly {Path}. Unknown exception was thrown. Disabling plugin", assembly.Location);
+                            ChangePluginState(plugin, PluginStatus.Malfunctioned);
+                            break;
+                        }
+
+                        _logger.LogInformation("Loaded assembly {Assembly} from {Path}", assembly.FullName, assembly.Location);
+                        yield return assembly;
+                    }
                 }
             }
         }

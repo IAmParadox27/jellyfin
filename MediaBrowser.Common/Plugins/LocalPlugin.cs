@@ -63,6 +63,11 @@ namespace MediaBrowser.Common.Plugins
         public IReadOnlyList<string> DllFiles { get; set; }
 
         /// <summary>
+        /// Gets the list of plugin IDs which this plugin is dependent on.
+        /// </summary>
+        public IReadOnlyList<Guid>? PluginDependencies => Manifest.Dependencies;
+
+        /// <summary>
         /// Gets or sets the instance of this plugin.
         /// </summary>
         public IPlugin? Instance { get; set; }

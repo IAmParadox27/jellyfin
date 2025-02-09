@@ -25,6 +25,7 @@ namespace MediaBrowser.Common.Plugins
             TargetAbi = string.Empty;
             Version = string.Empty;
             Assemblies = Array.Empty<string>();
+            Dependencies = Array.Empty<Guid>();
         }
 
         /// <summary>
@@ -113,5 +114,11 @@ namespace MediaBrowser.Common.Plugins
         /// </summary>
         [JsonPropertyName("assemblies")]
         public IReadOnlyList<string> Assemblies { get; set; }
+
+        /// <summary>
+        /// Gets or sets the collection of plugin IDs that this plugin is dependent on.
+        /// </summary>
+        [JsonPropertyName("dependencies")]
+        public IReadOnlyList<Guid>? Dependencies { get; set; }
     }
 }
